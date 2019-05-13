@@ -1,13 +1,11 @@
 import numpy as np
 
-SPLIT = 11
-POS_USER_RANGE = range(1, SPLIT)
-NEG_USER_RANGE = range(SPLIT, 154)
+S0_TRAIN_USER_RANGE = range(1, 12)
+S0_TEST_USER_RANGE = range(12, 23)
 
 NEG_RATE = 1
 
-RAW_PATH = 'data/raw'
-FEAT_PATH = 'data/'
+PATH = 'data/'
 
 BATCH_SIZE = 128
 FEAT_EPOCHS = 20
