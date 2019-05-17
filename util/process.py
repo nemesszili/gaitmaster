@@ -1,121 +1,120 @@
-from pathlib import Path
+import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
+import random
+from sklearn.svm import SVC
+from sklearn import metrics
+from scipy.optimize import brentq
+from scipy.interpolate import interp1d
 
-from util.const import *
+from util.load import load, load_auto
+from util.torch import FeatureExtractor
 
-def load_feat(csv):
-    df = pd.read_csv(Path(PATH).joinpath(Path(csv)), header=None)
+##
+#  Calculates system AUC+EER and provides FPR and TPR lists
+#  used for creating the ROCAUC plot.
+#
+def evaluate(data):
+    labels = [int(e) for e in data['labels']]
+    scores = [float(e) for e in data['scores']]
+    fpr, tpr, _ = metrics.roc_curve(labels, scores, pos_label=1)
+    auc = metrics.roc_auc_score(np.array(labels), np.array(scores))
+    eer = brentq(lambda x: 1. - x - interp1d(fpr, tpr)(x), 0., 1.)
+    return (tpr, fpr, auc, eer)
 
-    y = df[df.columns[-1]].values
-    y = LabelEncoder().fit_transform(y) + 1
-    df[df.columns[-1]] = y
+##
+#  Train and evaluate the system.
+#
+def train_evaluate(params):
+    raw, feat_ext, same_day, steps, identification = params
+
+    train_user_dfs, train_neg_df, test_user_dfs, test_neg_df = \
+        load(raw=raw, split=None, same_day=same_day)
+
+    if feat_ext is not None:
+        if feat_ext == 'dense':
+            if raw:
+                extr = FeatureExtractor(load_auto(raw), feat_ext, [384, 192, 64])
+            else:
+                extr = FeatureExtractor(load_auto(raw), feat_ext, [59, 32, 16])
+
+        train_user_dfs = list(map(lambda df: extr.to_latent(df), train_user_dfs))
+        test_user_dfs = list(map(lambda df: extr.to_latent(df), test_user_dfs))
+
+        train_neg_df = extr.to_latent(train_neg_df)
+        test_neg_df = extr.to_latent(test_neg_df)
+
+    y_train_neg = train_neg_df[train_neg_df.columns[-1]].values
+    X_train_neg = train_neg_df.drop(train_neg_df.columns[-1], axis=1).values
+
+    y_test_neg = test_neg_df[test_neg_df.columns[-1]].values
+    X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
+
+    if steps > 1:
+        y_test_neg = np.zeros(len(y_test_neg[:-(steps - 1)]))
+    else:
+        y_test_neg = np.zeros(len(y_test_neg))
+
+    if identification:
+        model = SVC(kernel='rbf', gamma='auto', C=100)
+        print('Identification!')
+    else:
+        models = [SVC(kernel='rbf', gamma='auto', C=100)] * len(train_user_dfs)
+        system_scores = pd.DataFrame({'labels': [], 'scores': []})
+
+        auc_list = []
+        eer_list = []
+
+        for idx in range(len(train_user_dfs)):
+            train_df = train_user_dfs[idx]
+            test_df = test_user_dfs[idx]
+            model = models[idx]
+
+            # Compile data for training
+            y_pos = train_df[train_df.columns[-1]].values
+            X_pos = train_df.drop(train_df.columns[-1], axis=1).values
+
+            X_train = np.concatenate((X_pos, X_train_neg), axis=0)
+            y_train = np.concatenate((y_pos, y_train_neg), axis=0)
+
+            # Compile data for testing
+            y_pos = test_df[test_df.columns[-1]].values
+            X_pos = test_df.drop(test_df.columns[-1], axis=1).values
+
+            model.fit(X_train, y_train)
+
+            # Evaluate for consecutive steps
+            y_test_pos = np.ones(len(y_pos) - steps + 1)
+            y_scores_pos = model.decision_function(X_pos).tolist()
+            if steps > 1:
+                y_scores_pos = [np.mean(y_scores_pos[i:(i + steps)])
+                    for i in range(len(y_scores_pos) - steps + 1)]
+
+            y_scores_neg = model.decision_function(X_test_neg).tolist()
+            if steps > 1:
+                y_scores_neg = [np.mean(y_scores_neg[i:(i + steps)])
+                    for i in range(len(y_scores_neg) - steps + 1)]
+
+            scores = np.concatenate((y_scores_pos, y_scores_neg), axis=0)
+            labels = np.concatenate((y_test_pos, y_test_neg), axis=0)
+
+            try:
+                auc = metrics.roc_auc_score(labels, scores)
+                auc_list.append(auc)
+            except ValueError:
+                print('Exception at user', idx)
+
+            fpr, tpr, thresholds = metrics.roc_curve(labels, scores, pos_label=1)
+            eer = brentq(lambda x: 1. - x - interp1d(fpr, tpr)(x), 0., 1.)
+            eer_list.append(eer)
+            
+            system_scores = system_scores.append(pd.DataFrame(
+                data=np.c_[labels, scores], columns=['labels', 'scores']))
     
-    return df
+        m_auc  = np.mean(auc_list)
+        sd_auc = np.std(auc_list)
+        print("User AUC (mean, stdev): {}, {}".format(m_auc, sd_auc))
+        m_eer = np.mean(eer_list)
+        sd_eer = np.std(eer_list)
+        print("User EER (mean, stdev): {}, {}".format(m_eer, sd_eer))
 
-def load_raw(csv):
-    df = pd.read_csv(Path(PATH).joinpath(Path(csv)), sep='\t')
-
-    y = df[df.columns[-1]].values
-    y = LabelEncoder().fit_transform(y) + 1
-    df[df.columns[-1]] = y
-    
-    return df
-
-def get_feat_csv(session, split):
-    return 'zju_gaitaccel_session_' + str(session) + '_' + str(split) + '.csv'
-
-def get_raw_csv(session, split):
-    return 'zju_raw_session_' + str(session) + '_' + str(split) + '.csv'
-
-def get_X_y(df_s, pos_size):
-    pos = (pos_size == 0)
-    user_range = POS_USER_RANGE if pos else NEG_USER_RANGE
-    allowed = ['u%03d' % i for i in user_range]
-
-    df = df_s.loc[df_s[df_s.columns[-1]].isin(allowed)]
-    if pos:
-        y = df[df.columns[-1]].values
-        y = LabelEncoder().fit_transform(y) + 1
-    else:
-        df = df.sample(n=pos_size * NEG_RATE, random_state=RANDOM_STATE)
-        y = np.zeros((pos_size * NEG_RATE,))
-    X = df.drop([df.columns[-1]], axis=1).values
-
-    return X, y
-
-def get_df(df, pos_class):
-    return df.loc[df[df.columns[-1]] == pos_class]
-
-def load_auto(raw):
-    if raw:
-        df_s0 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(0, 128))), sep='\t')
-        df_s1 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(1, 128))), sep='\t')
-        # df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(2, 128))), sep='\t')
-    else:
-        df_s0 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(0, 128))), header=None)
-        df_s1 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(1, 128))), header=None)
-        # df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(2, 128))), header=None)
-
-    return pd.concat([df_s0, df_s1])
-
-def load(raw, split, same_day):
-    session0 = (split is None)
-    if not session0:
-        POS_USER_RANGE = range(1, split + 1)
-        NEG_USER_RANGE = range(split + 1, 154)
-    else:
-        POS_USER_RANGE = range(1, 154)
-
-    if raw:
-        df_s0 = load_raw(get_raw_csv(0, 128))
-        df_s1 = load_raw(get_raw_csv(1, 128))
-        df_s2 = load_raw(get_raw_csv(2, 128))
-    else:
-        df_s0 = load_feat(get_feat_csv(0, 128))
-        df_s1 = load_feat(get_feat_csv(1, 128))
-        df_s2 = load_feat(get_feat_csv(2, 128))
-
-    train_user_dfs = list(map(lambda c: get_df(df_s1, c), POS_USER_RANGE))
-    pos_size = int(np.mean([len(df) for df in train_user_dfs]))
-    if session0:
-        df = df_s0
-        df = df.loc[df[df.columns[-1]].isin(S0_TRAIN_USER_RANGE)]
-    else:
-        df = df_s1
-        df = df.loc[df[df.columns[-1]].isin(NEG_USER_RANGE)]
-
-    df = df.sample(n=pos_size * NEG_RATE, random_state=RANDOM_STATE)
-    df[df.columns[-1]] = np.zeros((pos_size * NEG_RATE,))
-    train_neg_df = df.copy()
-    
-    new_train = []
-    test_user_dfs = []
-    for df in train_user_dfs:
-        df1, df2 = np.array_split(df, 2)
-        new_train.append(df1)
-        test_user_dfs.append(df2)
-
-    train_user_dfs = new_train
-    df1, df2 = np.array_split(train_neg_df, 2)
-    train_neg_df = df1
-    test_neg_df = df2
-
-    if not same_day:
-        test_user_dfs = list(map(lambda c: get_df(df_s2, c), POS_USER_RANGE))
-        test_user_dfs = list(map(lambda df: df.sample(frac=0.5, random_state=RANDOM_STATE), test_user_dfs))
-        pos_size = int(np.mean([len(df) for df in test_user_dfs]))
-
-        if session0:
-            df = df_s0
-            df = df.loc[df[df.columns[-1]].isin(S0_TEST_USER_RANGE)]
-        else:
-            df = df_s2
-            df = df.loc[df[df.columns[-1]].isin(NEG_USER_RANGE)]
-
-        df = df.sample(n=pos_size * NEG_RATE, random_state=RANDOM_STATE)
-        df[df.columns[-1]] = np.zeros((pos_size * NEG_RATE,))
-        test_neg_df = df.copy()
-
-    return train_user_dfs, train_neg_df, test_user_dfs, test_neg_df
+        return system_scores
