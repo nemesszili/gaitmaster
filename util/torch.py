@@ -38,7 +38,7 @@ class FeatureExtractor():
         if feat_ext == 'dense':
             self.model = DenseAutoencoder(encode_dim, activation).cpu()
         elif feat_ext == 'lstm':
-            self.model = LSTMAutoencoder(encode_dim, activation).cpu()
+            self.model = LSTMAutoencoder(128, activation).cpu()
 
         print(self.model)
         
@@ -81,6 +81,7 @@ class FeatureExtractor():
             for data in loader:
                 vec, label = data
                 vec = Variable(vec, requires_grad=False).cpu()
+                curr_batch = vec.shape[0]
                 _, enc = self.model(vec)
                 
                 encs = torch.cat((encs, enc.squeeze()))
@@ -89,4 +90,3 @@ class FeatureExtractor():
             latent_df = pd.DataFrame(data=np.c_[encs.detach().numpy(), labels])
             
         return latent_df
-        

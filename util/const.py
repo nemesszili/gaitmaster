@@ -9,7 +9,7 @@ NEG_RATE = 1
 PATH = 'data/'
 
 BATCH_SIZE = 128
-FEAT_EPOCHS = 20
+FEAT_EPOCHS = 10
 
 RANDOM_STATE = np.random.seed(0)
 torch.manual_seed(0)
