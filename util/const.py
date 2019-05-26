@@ -4,6 +4,8 @@ import torch
 S0_TRAIN_USER_RANGE = range(1, 12)
 S0_TEST_USER_RANGE = range(12, 23)
 
+USER_RANGE = range(1, 154)
+
 NEG_RATE = 1
 
 PATH = 'data/'

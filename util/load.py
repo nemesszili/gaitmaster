@@ -1,9 +1,25 @@
 from pathlib import Path
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import scale
+from util.torch import FeatureExtractor
 
 from util.const import *
+
+
+class Extractor():
+    def __init__(self):
+        self.data = None
+
+extractor = Extractor()
+
+##
+#
+#
+def scale_df(df):
+    X = df.drop([df.columns[-1]], axis=1)
+    df[df.columns[:-1]] = scale(X)
+    return df
 
 ##
 #  Reads the content of CSV file containing 59 feature data.
@@ -52,18 +68,16 @@ def load_auto(raw):
     if raw:
         df_s0 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(0))), sep='\t')
         df_s1 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(1))), sep='\t')
-        # df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(2))), sep='\t')
+        df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(2))), sep='\t')
     else:
         df_s0 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(0))), header=None)
         df_s1 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(1))), header=None)
-        # df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(2))), header=None)
+        df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(2))), header=None)
 
-    return pd.concat([df_s0, df_s1])
+    return pd.concat([df_s0, df_s1, df_s2])
 
 ##
-#  Prepares the data for the measurement. If all 153 users are used,
-#  the first half (u001-u011) of session 0 is used for training and 
-#  the second half (u012-u022) is used for testing.
+#  Prepares the data for the measurement.
 #
 #  Steps:
 #   1.   Loads as many dataframes as user classes we want to measure.
@@ -74,38 +88,38 @@ def load_auto(raw):
 #   3.2. Cross day: Use the first half of every user dataframe from seesion 2
 #        for testing and use negative samples from either the rest or session 0.
 #
-def load(raw, split, same_day):
-    session0 = (split is None)
-    if not session0:
-        POS_USER_RANGE = range(1, split + 1)
-        NEG_USER_RANGE = range(split + 1, 154)
-    else:
-        POS_USER_RANGE = range(1, 154)
+def load(raw, same_day, unreg, feat_ext):
+    if extractor.data is None:
+        if raw:
+            df_s0 = load_raw(get_raw_csv(0))
+            df_s1 = load_raw(get_raw_csv(1))
+            df_s2 = load_raw(get_raw_csv(2))
+        else:
+            df_s0 = load_feat(get_feat_csv(0))
+            df_s1 = load_feat(get_feat_csv(1))
+            df_s2 = load_feat(get_feat_csv(2))
 
-    if raw:
-        df_s0 = load_raw(get_raw_csv(0))
-        df_s1 = load_raw(get_raw_csv(1))
-        df_s2 = load_raw(get_raw_csv(2))
-    else:
-        df_s0 = load_feat(get_feat_csv(0))
-        df_s1 = load_feat(get_feat_csv(1))
-        df_s2 = load_feat(get_feat_csv(2))
+        if feat_ext is not None:
+            if raw:
+                extr = FeatureExtractor(load_auto(raw), feat_ext, [384, 192, 64])
+            else:
+                extr = FeatureExtractor(load_auto(raw), feat_ext, [59, 32, 16])
 
+            df_s0 = extr.to_latent(df_s0)
+            df_s1 = extr.to_latent(df_s1)
+            df_s2 = extr.to_latent(df_s2)
+
+        df_s0 = scale_df(df_s0)
+        df_s1 = scale_df(df_s1)
+        df_s2 = scale_df(df_s2)
+    else:
+        return extractor.data
+        
     # Create user dataframes
-    train_user_dfs = list(map(lambda c: filter_df(df_s1, c), POS_USER_RANGE))
+    train_user_dfs = list(map(lambda c: filter_df(df_s1, c), USER_RANGE))
     pos_size = int(np.mean([len(df) for df in train_user_dfs]))
     
-    if session0:
-        df = df_s0
-        df = df.loc[df[df.columns[-1]].isin(S0_TRAIN_USER_RANGE)]
-    else:
-        df = df_s1
-        df = df.loc[df[df.columns[-1]].isin(NEG_USER_RANGE)]
-
-    # Sample negatives
-    df = df.sample(n=pos_size * NEG_RATE, random_state=RANDOM_STATE)
-    df[df.columns[-1]] = np.zeros((pos_size * NEG_RATE,))
-    train_neg_df = df.copy()
+    train_neg_dfs = list(map(lambda c: filter_df(df_s0, c), S0_TRAIN_USER_RANGE))
     
     # Halve all user dataframes; use the first halves for training,
     # second halves for testing
@@ -117,26 +131,28 @@ def load(raw, split, same_day):
         test_user_dfs.append(df2)
     train_user_dfs = new_train
 
-    df1, _ = np.array_split(train_neg_df, 2)
-    train_neg_df = df1
+    new_neg_train = []
+    test_neg_dfs = []
+    for df in train_neg_dfs:
+        df1, df2 = np.array_split(df, 2)
+        new_neg_train.append(df1)
+        test_neg_dfs.append(df2)
+    train_neg_df = pd.concat(new_neg_train)
 
-    if same_day:
-        # We need to sample negatives in the same day scenario from session 0
-        # in order to have consecutive steps
-        df = df_s0
-        test_neg_df = df.loc[df[df.columns[-1]].isin(S0_TEST_USER_RANGE)].copy()
-    else:
-        # Take the first half of every user dataframe from session 2
-        test_user_dfs = list(map(lambda c: filter_df(df_s2, c), POS_USER_RANGE))
+    if unreg:
+        test_neg_dfs = list(map(lambda c: filter_df(df_s0, c), S0_TEST_USER_RANGE))
+        test_neg_dfs = list(map(lambda df: df.head(int(len(df)/2)), test_neg_dfs))
+
+    if not same_day:
+        test_user_dfs = list(map(lambda c: filter_df(df_s2, c), USER_RANGE))
         test_user_dfs = list(map(lambda df: df.head(int(len(df)/2)), test_user_dfs))
 
-        if session0:
-            df = df_s0
-            df = df.loc[df[df.columns[-1]].isin(S0_TEST_USER_RANGE)]
-        else:
-            df = df_s2
-            df = df.loc[df[df.columns[-1]].isin(NEG_USER_RANGE)]
+    test_neg_df = pd.concat(test_neg_dfs)
 
-        test_neg_df = df.copy()
+    train_neg_df[train_neg_df.columns[-1]] = 0
+    test_neg_df[test_neg_df.columns[-1]] = 0
+
+    extractor.data = (train_user_dfs, train_neg_df,
+                      test_user_dfs, test_neg_df)
 
     return train_user_dfs, train_neg_df, test_user_dfs, test_neg_df
