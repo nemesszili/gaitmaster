@@ -10,7 +10,7 @@ class LSTMAutoencoder(nn.Module):
     def __init__(self, encode_dim):
         super(LSTMAutoencoder, self).__init__()
 
-        self.hidden_dim = 16
+        self.hidden_dim = 64
         self.layer_dim = 2
 
         self.encoder = nn.LSTM(input_size=3, hidden_size=self.hidden_dim,
@@ -51,7 +51,7 @@ class LSTMAutoencoder(nn.Module):
         # x_res = x_enc.repeat(1, 128, 1)
         # x_res = x_enc.repeat(128, 1, 1)
         # x_res = out
-        x_res = x_enc.repeat(1, 128).view(-1, 128, 16)
+        x_res = x_enc.repeat(1, 128).view(-1, 128, self.hidden_dim)
         # x_enc = out[:, -1, :]
         # print(x_enc.shape)
         # x_res = out

@@ -8,7 +8,6 @@ from scipy.optimize import brentq
 from scipy.interpolate import interp1d
 
 from util.load import load
-from util.torch import FeatureExtractor
 
 
 ##
@@ -27,18 +26,17 @@ def evaluate(data):
 #  Train and evaluate the system.
 #
 def train_evaluate(params):
-    raw, feat_ext, same_day, unreg, steps, identification = params
+    feat_ext, same_day, unreg, steps, identification, epochs = params
 
-    train_user_dfs, train_neg_df, test_user_dfs, test_neg_df = \
-        load(raw, same_day, unreg, feat_ext)
+    train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs = \
+        load(same_day, unreg, feat_ext, epochs, steps)
 
-    # train_neg_df.to_csv('torch_session0.csv', sep='\t')
+    if identification or unreg:
+        test_neg_df = pd.concat(test_neg_dfs)
+        X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
 
     y_train_neg = train_neg_df[train_neg_df.columns[-1]].values
     X_train_neg = train_neg_df.drop(train_neg_df.columns[-1], axis=1).values
-
-    y_test_neg = test_neg_df[test_neg_df.columns[-1]].values
-    X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
 
     # Scores used for micro-averaging
     auc_list = []
@@ -52,13 +50,13 @@ def train_evaluate(params):
         X_train = copy.deepcopy(X_train_neg)
         y_train = copy.deepcopy(y_train_neg)
 
-        X_test = copy.deepcopy(X_test_neg)
-        y_test = copy.deepcopy(y_test_neg)
-
         if steps > 1:
-            y_test_neg = np.zeros(len(y_test_neg[:-(steps - 1)]))
+            y_test_neg = np.zeros(len(X_test_neg[:-(steps - 1)]))
         else:
-            y_test_neg = np.zeros(len(y_test_neg))
+            y_test_neg = np.zeros(len(X_test_neg))
+
+        X_test = copy.deepcopy(X_test_neg)
+        y_test = y_test_neg
 
         for idx in range(len(train_user_dfs)):
             train_df = train_user_dfs[idx]
@@ -82,11 +80,6 @@ def train_evaluate(params):
         return metrics.accuracy_score(y_test, model.predict(X_test))
     else:
         models = [SVC(kernel='rbf', gamma='auto', C=100)] * len(train_user_dfs)
-
-        if steps > 1:
-            y_test_neg = np.zeros(len(y_test_neg[:-(steps - 1)]))
-        else:
-            y_test_neg = np.zeros(len(y_test_neg))
 
         for idx in range(len(train_user_dfs)):
             train_df = train_user_dfs[idx]
@@ -113,10 +106,25 @@ def train_evaluate(params):
                 y_scores_pos = [np.mean(y_scores_pos[i:(i + steps)])
                     for i in range(len(y_scores_pos) - steps + 1)]
 
+            # Select appropriate negative test set
+            if not unreg:
+                test_neg_df = test_neg_dfs[idx]
+                X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
+                y_test_neg = np.zeros(int(len(X_test_neg) / steps))
+            else:
+                if steps > 1:
+                    y_test_neg = np.zeros(len(X_test_neg[:-(steps - 1)]))
+                else:
+                    y_test_neg = np.zeros(len(X_test_neg))
+
             y_scores_neg = model.decision_function(X_test_neg).tolist()
             if steps > 1:
-                y_scores_neg = [np.mean(y_scores_neg[i:(i + steps)])
-                    for i in range(len(y_scores_neg) - steps + 1)]
+                if unreg:
+                    y_scores_neg = [np.mean(y_scores_neg[i:(i + steps)])
+                        for i in range(len(y_scores_neg) - steps + 1)]
+                else:
+                    y_scores_neg = [np.mean(y_scores_neg[i:(i + steps)])
+                        for i in range(0, len(y_scores_neg), steps)]
 
             scores = np.concatenate((y_scores_pos, y_scores_neg), axis=0)
             labels = np.concatenate((y_test_pos, y_test_neg), axis=0)
@@ -136,9 +144,9 @@ def train_evaluate(params):
 
         m_auc  = np.mean(auc_list)
         sd_auc = np.std(auc_list)
-        print("User AUC (mean, stdev): {}, {}".format(m_auc, sd_auc))
         m_eer = np.mean(eer_list)
         sd_eer = np.std(eer_list)
-        print("User EER (mean, stdev): {}, {}".format(m_eer, sd_eer))
+
+        print(f"{m_auc:.4f} ({sd_auc:.4f}) & {m_eer:.4f} ({sd_eer:.4f})")
 
         return system_scores

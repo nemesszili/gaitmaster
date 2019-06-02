@@ -2,8 +2,9 @@ from pathlib import Path
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import scale
-from util.torch import FeatureExtractor
+import numpy as np
 
+from util.torch import FeatureExtractor
 from util.const import *
 
 
@@ -64,17 +65,13 @@ def filter_df(df, label):
 ##
 #  Loads data used for training autoencoders.
 #
-def load_auto(raw):
-    if raw:
-        df_s0 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(0))), sep='\t')
-        df_s1 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(1))), sep='\t')
-        df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(2))), sep='\t')
-    else:
-        df_s0 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(0))), header=None)
-        df_s1 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(1))), header=None)
-        df_s2 = pd.read_csv(Path(PATH).joinpath(Path(get_feat_csv(2))), header=None)
+def load_auto():
+    df_s0 = scale_df(pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(0))), sep='\t'))
+    df_s1 = scale_df(pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(1))), sep='\t'))
+    # df_s2 = scale_df(pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(2))), sep='\t'))
 
-    return pd.concat([df_s0, df_s1, df_s2])
+    # return pd.concat([df_s0, df_s1, df_s2])
+    return pd.concat([df_s0, df_s1])
 
 ##
 #  Prepares the data for the measurement.
@@ -88,32 +85,47 @@ def load_auto(raw):
 #   3.2. Cross day: Use the first half of every user dataframe from seesion 2
 #        for testing and use negative samples from either the rest or session 0.
 #
-def load(raw, same_day, unreg, feat_ext):
+def load(same_day, unreg, feat_ext, epochs, steps):
     if extractor.data is None:
-        if raw:
-            df_s0 = load_raw(get_raw_csv(0))
-            df_s1 = load_raw(get_raw_csv(1))
-            df_s2 = load_raw(get_raw_csv(2))
-        else:
+        if feat_ext == '59':
             df_s0 = load_feat(get_feat_csv(0))
             df_s1 = load_feat(get_feat_csv(1))
             df_s2 = load_feat(get_feat_csv(2))
+        else:
+            df_s0 = load_raw(get_raw_csv(0))
+            df_s1 = load_raw(get_raw_csv(1))
+            df_s2 = load_raw(get_raw_csv(2))
 
-        if feat_ext is not None:
-            if raw:
-                extr = FeatureExtractor(load_auto(raw), feat_ext, [384, 192, 64])
-            else:
-                extr = FeatureExtractor(load_auto(raw), feat_ext, [59, 32, 16])
+            if feat_ext is not None:
+                extr = FeatureExtractor(load_auto(), feat_ext, epochs, same_day)
 
-            df_s0 = extr.to_latent(df_s0)
-            df_s1 = extr.to_latent(df_s1)
-            df_s2 = extr.to_latent(df_s2)
+                df_s0 = extr.to_latent(df_s0)
+                df_s1 = extr.to_latent(df_s1)
+                df_s2 = extr.to_latent(df_s2)
 
         df_s0 = scale_df(df_s0)
         df_s1 = scale_df(df_s1)
         df_s2 = scale_df(df_s2)
     else:
-        return extractor.data
+        if not unreg:
+            train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs = extractor.data
+
+            test_neg_dfs = [pd.DataFrame(columns=range(train_user_dfs[0].shape[1]))] * NUM_USERS
+            for idx in range(len(test_user_dfs)): 
+                for _ in range(steps):
+                    user_idx = np.random.randint(NUM_USERS)
+                    while (user_idx == idx):
+                        user_idx = np.random.randint(NUM_USERS)
+
+                    split_from = np.random.randint(len(test_user_dfs[user_idx]) - steps)
+
+                    test_neg_dfs[idx] = test_neg_dfs[idx].append(
+                        pd.DataFrame(data=test_user_dfs[user_idx][split_from:split_from + steps].values,
+                                    columns=range(train_user_dfs[0].shape[1])), ignore_index=True)
+
+            return (train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs)
+        else:
+            return extractor.data
         
     # Create user dataframes
     train_user_dfs = list(map(lambda c: filter_df(df_s1, c), USER_RANGE))
@@ -142,17 +154,26 @@ def load(raw, same_day, unreg, feat_ext):
     if unreg:
         test_neg_dfs = list(map(lambda c: filter_df(df_s0, c), S0_TEST_USER_RANGE))
         test_neg_dfs = list(map(lambda df: df.head(int(len(df)/2)), test_neg_dfs))
+    else:
+        test_neg_dfs = [pd.DataFrame(columns=range(train_user_dfs[0].shape[1]))] * NUM_USERS
+        for idx in range(len(test_user_dfs)): 
+            for _ in range(pos_size - steps):
+                user_idx = np.random.randint(NUM_USERS)
+                while (user_idx == idx):
+                    user_idx = np.random.randint(NUM_USERS)
+
+                split_from = np.random.randint(len(test_user_dfs[user_idx]) - steps)
+
+                test_neg_dfs[idx] = test_neg_dfs[idx].append(
+                    pd.DataFrame(data=test_user_dfs[user_idx][split_from:split_from + steps].values,
+                                 columns=range(train_user_dfs[0].shape[1])), ignore_index=True)
 
     if not same_day:
         test_user_dfs = list(map(lambda c: filter_df(df_s2, c), USER_RANGE))
         test_user_dfs = list(map(lambda df: df.head(int(len(df)/2)), test_user_dfs))
 
-    test_neg_df = pd.concat(test_neg_dfs)
-
     train_neg_df[train_neg_df.columns[-1]] = 0
-    test_neg_df[test_neg_df.columns[-1]] = 0
-
     extractor.data = (train_user_dfs, train_neg_df,
-                      test_user_dfs, test_neg_df)
+                      test_user_dfs, test_neg_dfs)
 
-    return train_user_dfs, train_neg_df, test_user_dfs, test_neg_df
+    return train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs

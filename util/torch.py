@@ -37,17 +37,22 @@ class GaitDataset(Dataset):
 
 
 class FeatureExtractor():
-    def __init__(self, train_df, feat_ext, encode_dim, activation='relu'):
+    def __init__(self, train_df, feat_ext, epochs, same_day, activation='relu'):
         if feat_ext == 'dense':
-            self.model = DenseAutoencoder(encode_dim, activation).cpu()
+            self.model = DenseAutoencoder([384, 192, 64], activation).cpu()
+            # if same_day:
+            #     self.model = DenseAutoencoder([384, 256, 128, 64], activation).cpu()
+            # else:
+            #     self.model = DenseAutoencoder([384, 256, 128, 64, 32], activation).cpu()
         elif feat_ext == 'lstm':
             self.model = LSTMAutoencoder(128).cpu()
 
         self.is_lstm = (feat_ext == 'lstm')
+        self.epochs = epochs
 
         self.distance = nn.MSELoss()
         lr = 1e-3
-        # self.optimizer = torch.optim.SGD(self.model.parameters(), lr = lr, momentum = 0.9)
+        # self.optimizer = torch.optim.SGD(self.model.parameters(), lr=lr)
         # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=1e-5)
         self.optimizer = torch.optim.Adadelta(self.model.parameters())
         dataset = GaitDataset(train_df, self.is_lstm)
@@ -56,7 +61,7 @@ class FeatureExtractor():
         self._train_feat_ext()
 
     def _train_feat_ext(self):
-        for epoch in range(FEAT_EPOCHS):
+        for epoch in range(self.epochs):
             self._train(epoch)
 
         print('FEAT: Done training!')
@@ -73,7 +78,7 @@ class FeatureExtractor():
             loss.backward()
             self.optimizer.step()
             
-        print('epoch [{}/{}], loss: {:.4f}'.format(epoch + 1, FEAT_EPOCHS, loss.item()))
+        print('epoch [{}/{}], loss: {:.4f}'.format(epoch + 1, self.epochs, loss.item()))
 
     def to_latent(self, df):
         loader = DataLoader(GaitDataset(df, self.is_lstm), batch_size=BATCH_SIZE)
