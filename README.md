@@ -4,9 +4,12 @@
 
 ### Context
 
-Autoencoder measurements with ZJU-GaitAcc dataset for master's thesis.
+Autoencoder measurements with ZJU-GaitAcc dataset for master's thesis. Loosely based on [gaitgmm](https://github.com/nemesszili/gaitgmm).
 
 ### How it works
+
+Obtain the dataset from [here](http://www.cs.zju.edu.cn/~gpan/database/gaitacc.html).
+Move the dataset under the `data/raw_data` and run [notebooks/RawToCSV.ipynb](notebooks/RawToCSV.ipynb) to obtain the raw features.
 
 Run:
 ```batch
@@ -29,7 +32,7 @@ Specify measurement settings with command line arguments.
 | `--identification/--verification` | `--verification` | Evaluation mode |
 | `--unreg/--reg`                   | `--unreg`        | Use data from unregistered users **OR** Use negative data from users that the system has already encountered |
 | `--loopsteps/--regular`           | `--regular`      | Convenience option to run evaluation for all possible `--steps` options (from 1 to 10) |
-| `--epochs`                        | 10               | `Number of epochs used for autoencoder training. Ignored if --feat-ext is 'none' or '59'` |
+| `--epochs`                        | 10               | Number of epochs used for autoencoder training. Ignored if `--feat-ext` is 'none' or '59' |
 
 When in doubt, run:
 ```
