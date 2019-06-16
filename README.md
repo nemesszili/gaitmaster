@@ -11,7 +11,7 @@ Autoencoder measurements with ZJU-GaitAcc dataset for master's thesis.
 Run:
 ```batch
 conda env create -f environment.yml
-activate gait_auto
+activate gaitmaster
 ```
 
 Run a measurement with default settings:
