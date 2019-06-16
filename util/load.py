@@ -106,9 +106,9 @@ def sample_registered(num_features, steps, test_user_dfs):
 #   2.   Takes the first half of every user class from session 1 (u001-u153)
 #        and from session 0 (u001-u011) as training data.
 #   3.1. Same-day/cross-day: second half of session 1/first half of session 2
-#        is used for testing as positive samples.scale_df(df_s1)
-#   3.2. Unreg/reg negatives: u012-u022 from sessiscale_df(df_s1)on 0/samples from session 1
-#        are used for testing as negative samples.scale_df(df_s1)
+#        is used for testing as positive samples.
+#   3.2. Unreg/reg negatives: u012-u022 from session 0/samples from session 1
+#        are used for testing as negative samples.
 #
 def load(same_day, unreg, feat_ext, epochs, steps):
     if extractor.data is None:

@@ -9,7 +9,7 @@ Autoencoder measurements with ZJU-GaitAcc dataset for master's thesis. Loosely b
 ### How it works
 
 Obtain the dataset from [here](http://www.cs.zju.edu.cn/~gpan/database/gaitacc.html).
-Move the dataset under the `data/raw_data` and run [notebooks/RawToCSV.ipynb](notebooks/RawToCSV.ipynb) to obtain the raw features.
+Move the dataset under `data/raw_data` and run [notebooks/RawToCSV.ipynb](notebooks/RawToCSV.ipynb) to obtain the raw features.
 
 Run:
 ```batch
