@@ -11,7 +11,7 @@ from util.load import load
 
 
 ##
-#  Calculates system AUC+EER and provides FPR and TPR lists
+#  Calculates system AUC + EER and provides FPR and TPR lists
 #  used for creating the ROCAUC plot.
 #
 def evaluate(data):
@@ -31,13 +31,6 @@ def train_evaluate(params):
     train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs = \
         load(same_day, unreg, feat_ext, epochs, steps)
 
-    if identification or unreg:
-        test_neg_df = pd.concat(test_neg_dfs)
-        X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
-
-    y_train_neg = train_neg_df[train_neg_df.columns[-1]].values
-    X_train_neg = train_neg_df.drop(train_neg_df.columns[-1], axis=1).values
-
     # Scores used for micro-averaging
     auc_list = []
     eer_list = []
@@ -47,39 +40,21 @@ def train_evaluate(params):
     if identification:
         model = SVC(kernel='rbf', gamma='auto', C=100)
 
-        X_train = copy.deepcopy(X_train_neg)
-        y_train = copy.deepcopy(y_train_neg)
+        df = pd.concat(train_user_dfs)
+        y_train = df[df.columns[-1]].values
+        X_train = df.drop(df.columns[-1], axis=1).values
 
-        if steps > 1:
-            y_test_neg = np.zeros(len(X_test_neg[:-(steps - 1)]))
-        else:
-            y_test_neg = np.zeros(len(X_test_neg))
-
-        X_test = copy.deepcopy(X_test_neg)
-        y_test = y_test_neg
-
-        for idx in range(len(train_user_dfs)):
-            train_df = train_user_dfs[idx]
-            test_df = test_user_dfs[idx]
-
-            # Compile data for training
-            y_pos = train_df[train_df.columns[-1]].values
-            X_pos = train_df.drop(train_df.columns[-1], axis=1).values
-
-            X_train = np.concatenate((X_train, X_pos), axis=0)
-            y_train = np.concatenate((y_train, y_pos), axis=0)
-
-            # Compile data for testing
-            y_pos = test_df[test_df.columns[-1]].values
-            X_pos = test_df.drop(test_df.columns[-1], axis=1).values
-
-            X_test = np.concatenate((X_test, X_pos), axis=0)
-            y_test = np.concatenate((y_test, y_pos), axis=0)
+        df = pd.concat(test_user_dfs)
+        y_test = df[df.columns[-1]].values
+        X_test = df.drop(df.columns[-1], axis=1).values
 
         model.fit(X_train, y_train)
         return metrics.accuracy_score(y_test, model.predict(X_test))
     else:
         models = [SVC(kernel='rbf', gamma='auto', C=100)] * len(train_user_dfs)
+
+        y_train_neg = train_neg_df[train_neg_df.columns[-1]].values
+        X_train_neg = train_neg_df.drop([train_neg_df.columns[-1]], axis=1).values
 
         for idx in range(len(train_user_dfs)):
             train_df = train_user_dfs[idx]
@@ -112,6 +87,9 @@ def train_evaluate(params):
                 X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
                 y_test_neg = np.zeros(int(len(X_test_neg) / steps))
             else:
+                test_neg_df = pd.concat(test_neg_dfs)
+                X_test_neg = test_neg_df.drop(test_neg_df.columns[-1], axis=1).values
+
                 if steps > 1:
                     y_test_neg = np.zeros(len(X_test_neg[:-(steps - 1)]))
                 else:
@@ -144,7 +122,7 @@ def train_evaluate(params):
 
         m_auc  = np.mean(auc_list)
         sd_auc = np.std(auc_list)
-        m_eer = np.mean(eer_list)
+        m_eer  = np.mean(eer_list)
         sd_eer = np.std(eer_list)
 
         print(f"{m_auc:.4f} ({sd_auc:.4f}) & {m_eer:.4f} ({sd_eer:.4f})")

@@ -7,15 +7,22 @@ import numpy as np
 from util.torch import FeatureExtractor
 from util.const import *
 
-
+##
+#  Class used to persist data when evaluating for multiple step cycle options
+#  in sequence
+#
 class Extractor():
     def __init__(self):
         self.data = None
+        self.df_s1 = None
 
 extractor = Extractor()
 
 ##
+#  Scales the given dataframe
 #
+#  See:
+#  https://scikit-learn.org/stable/modules/preprocessing.html#preprocessing-scaler
 #
 def scale_df(df):
     X = df.drop([df.columns[-1]], axis=1)
@@ -23,7 +30,7 @@ def scale_df(df):
     return df
 
 ##
-#  Reads the content of CSV file containing 59 feature data.
+#  Reads the content of CSV file containing 59 feature data
 #
 def load_feat(csv):
     df = pd.read_csv(Path(PATH).joinpath(Path(csv)), header=None)
@@ -34,7 +41,7 @@ def load_feat(csv):
     return df
 
 ##
-#  Reads the content of CSV file containing raw step cycles.
+#  Reads the content of CSV file containing raw step cycles
 #
 def load_raw(csv):
     df = pd.read_csv(Path(PATH).joinpath(Path(csv)), sep='\t')
@@ -45,45 +52,63 @@ def load_raw(csv):
     return df
 
 ##
-#  Compiles the name of a 59 feature CSV based on the session.
+#  Compiles the name of a 59 feature CSV based on the session
 #
 def get_feat_csv(session):
     return 'zju_gaitaccel_session_' + str(session) + '_128.csv'
 
 ##
-#  Compiles the name of a raw CSV based on the session.
+#  Compiles the name of a raw CSV based on the session
 #
 def get_raw_csv(session):
     return 'zju_raw_session_' + str(session) + '_128.csv'
 
 ##
-#  Filters dataframe based on label.
+#  Filters dataframe based on label
 #
 def filter_df(df, label):
     return df.loc[df[df.columns[-1]] == label]
 
 ##
-#  Loads data used for training autoencoders.
+#  Loads and scale data used for training autoencoders
 #
 def load_auto():
     df_s0 = scale_df(pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(0))), sep='\t'))
     df_s1 = scale_df(pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(1))), sep='\t'))
-    # df_s2 = scale_df(pd.read_csv(Path(PATH).joinpath(Path(get_raw_csv(2))), sep='\t'))
-
-    # return pd.concat([df_s0, df_s1, df_s2])
+    
     return pd.concat([df_s0, df_s1])
 
 ##
-#  Prepares the data for the measurement.
+#  Samples consecutive step cycles from either session 1 or session 2
+#  as registered negatives
+#
+def sample_registered(num_features, steps, test_user_dfs):
+    test_neg_dfs = [pd.DataFrame(columns=range(num_features))] * NUM_USERS
+    for idx in range(len(test_user_dfs)):
+        for _ in range(steps):
+            user_idx = np.random.randint(NUM_USERS)
+            while (user_idx == idx):
+                user_idx = np.random.randint(NUM_USERS)
+
+            split_from = np.random.randint(len(test_user_dfs[user_idx]) - steps)
+
+            test_neg_dfs[idx] = test_neg_dfs[idx].append(
+                pd.DataFrame(data=test_user_dfs[user_idx][split_from:split_from + steps].values,
+                             columns=range(num_features)), ignore_index=True)
+
+    return test_neg_dfs
+
+##
+#  Prepares the data for the measurement
 #
 #  Steps:
-#   1.   Loads as many dataframes as user classes we want to measure.
-#   2.   Samples negative data for training
-#   3.1. Same day: use the first half of every user dataframe for training 
-#        and the second half for testing. Take negative training samples from 
-#        either the rest or session 0. Negative test samples also from session 0.
-#   3.2. Cross day: Use the first half of every user dataframe from seesion 2
-#        for testing and use negative samples from either the rest or session 0.
+#   1.   Loads all three sessions and performs feature extraction
+#   2.   Takes the first half of every user class from session 1 (u001-u153)
+#        and from session 0 (u001-u011) as training data.
+#   3.1. Same-day/cross-day: second half of session 1/first half of session 2
+#        is used for testing as positive samples.scale_df(df_s1)
+#   3.2. Unreg/reg negatives: u012-u022 from sessiscale_df(df_s1)on 0/samples from session 1
+#        are used for testing as negative samples.scale_df(df_s1)
 #
 def load(same_day, unreg, feat_ext, epochs, steps):
     if extractor.data is None:
@@ -106,22 +131,18 @@ def load(same_day, unreg, feat_ext, epochs, steps):
         df_s0 = scale_df(df_s0)
         df_s1 = scale_df(df_s1)
         df_s2 = scale_df(df_s2)
+
+        extractor.df_s1 = df_s1
     else:
         if not unreg:
-            train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs = extractor.data
+            train_user_dfs, train_neg_df, test_user_dfs, _ = extractor.data
 
-            test_neg_dfs = [pd.DataFrame(columns=range(train_user_dfs[0].shape[1]))] * NUM_USERS
-            for idx in range(len(test_user_dfs)): 
-                for _ in range(steps):
-                    user_idx = np.random.randint(NUM_USERS)
-                    while (user_idx == idx):
-                        user_idx = np.random.randint(NUM_USERS)
+            # This needs to be resampled in every iteration, since the number of
+            # step cycles is changing
+            second_s1 = list(map(lambda c: filter_df(extractor.df_s1, c), USER_RANGE))
+            second_s1 = list(map(lambda df: df.tail(int(len(df)/2)), second_s1))
 
-                    split_from = np.random.randint(len(test_user_dfs[user_idx]) - steps)
-
-                    test_neg_dfs[idx] = test_neg_dfs[idx].append(
-                        pd.DataFrame(data=test_user_dfs[user_idx][split_from:split_from + steps].values,
-                                    columns=range(train_user_dfs[0].shape[1])), ignore_index=True)
+            test_neg_dfs = sample_registered(train_user_dfs[0].shape[1], steps, second_s1)
 
             return (train_user_dfs, train_neg_df, test_user_dfs, test_neg_dfs)
         else:
@@ -155,18 +176,8 @@ def load(same_day, unreg, feat_ext, epochs, steps):
         test_neg_dfs = list(map(lambda c: filter_df(df_s0, c), S0_TEST_USER_RANGE))
         test_neg_dfs = list(map(lambda df: df.head(int(len(df)/2)), test_neg_dfs))
     else:
-        test_neg_dfs = [pd.DataFrame(columns=range(train_user_dfs[0].shape[1]))] * NUM_USERS
-        for idx in range(len(test_user_dfs)): 
-            for _ in range(pos_size - steps):
-                user_idx = np.random.randint(NUM_USERS)
-                while (user_idx == idx):
-                    user_idx = np.random.randint(NUM_USERS)
-
-                split_from = np.random.randint(len(test_user_dfs[user_idx]) - steps)
-
-                test_neg_dfs[idx] = test_neg_dfs[idx].append(
-                    pd.DataFrame(data=test_user_dfs[user_idx][split_from:split_from + steps].values,
-                                 columns=range(train_user_dfs[0].shape[1])), ignore_index=True)
+        num_features = train_user_dfs[0].shape[1]
+        test_neg_dfs = sample_registered(num_features, steps, test_user_dfs)
 
     if not same_day:
         test_user_dfs = list(map(lambda c: filter_df(df_s2, c), USER_RANGE))

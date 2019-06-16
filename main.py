@@ -3,21 +3,6 @@ import click
 from util.process import load, train_evaluate, evaluate
 from util.plots import plotAUC
 
-# IDENTIFICATION
-# SAME DAY:
-# 0.6900 - 59
-# 0.3077 - LSTM
-
-# CROSS DAY:
-# 0.1982 - 59
-# 0.0506 - LSTM
-
-# TODO: try with logistic regression
-# TODO: mixed-day measurement
-# TODO: add support for proper consecutive steps
-# TODO: document code
-# TODO: t-SNE plots
-
 @click.command()
 @click.option('--feat-ext', type=click.Choice(['none', 'dense', 'lstm', '59']),
               default='none', help='Type of autoencoder used for feature extraction')              

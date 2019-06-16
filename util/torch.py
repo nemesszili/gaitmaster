@@ -15,6 +15,11 @@ from util.auto_lstm import LSTMAutoencoder
 # https://www.oreilly.com/library/view/natural-language-processing/9781491978221/ch04.html
 # https://towardsdatascience.com/pytorch-how-and-when-to-use-module-sequential-modulelist-and-moduledict-7a54597b5f17
 
+
+##
+#  Class implementing torch.utils.data.Dataset specifically for a session of
+#  the ZJU-GaitAcc dataset
+#
 class GaitDataset(Dataset):
     def __init__(self, df, is_lstm):
         y = df[df.columns[-1]].values
@@ -35,15 +40,16 @@ class GaitDataset(Dataset):
 
         return vector, label
 
-
+##
+#  Class for training autoencoders and transforming dataframes to latent space
+#
 class FeatureExtractor():
     def __init__(self, train_df, feat_ext, epochs, same_day, activation='relu'):
         if feat_ext == 'dense':
-            self.model = DenseAutoencoder([384, 192, 64], activation).cpu()
-            # if same_day:
-            #     self.model = DenseAutoencoder([384, 256, 128, 64], activation).cpu()
-            # else:
-            #     self.model = DenseAutoencoder([384, 256, 128, 64, 32], activation).cpu()
+            if same_day:
+                self.model = DenseAutoencoder([384, 256, 128, 64], activation).cpu()
+            else:
+                self.model = DenseAutoencoder([384, 256, 128, 64, 32], activation).cpu()
         elif feat_ext == 'lstm':
             self.model = LSTMAutoencoder(128).cpu()
 
@@ -53,19 +59,24 @@ class FeatureExtractor():
         self.distance = nn.MSELoss()
         lr = 1e-3
         # self.optimizer = torch.optim.SGD(self.model.parameters(), lr=lr)
-        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=1e-5)
         self.optimizer = torch.optim.Adadelta(self.model.parameters())
         dataset = GaitDataset(train_df, self.is_lstm)
         self.train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
         self._train_feat_ext()
 
+    ##
+    #  Trains the autoencoder for specified number of training epochs
+    #
     def _train_feat_ext(self):
         for epoch in range(self.epochs):
             self._train(epoch)
 
         print('FEAT: Done training!')
 
+    ##
+    #  Runs one epoch of batch training
+    #
     def _train(self, epoch):
         for data in self.train_loader:
             vec, labels = data
@@ -80,6 +91,9 @@ class FeatureExtractor():
             
         print('epoch [{}/{}], loss: {:.4f}'.format(epoch + 1, self.epochs, loss.item()))
 
+    ##
+    #  Converts the given dataframe with the trained autoencoder to latent space
+    #
     def to_latent(self, df):
         loader = DataLoader(GaitDataset(df, self.is_lstm), batch_size=BATCH_SIZE)
 
