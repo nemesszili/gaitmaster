@@ -45,10 +45,7 @@ class GaitDataset(Dataset):
 class FeatureExtractor():
     def __init__(self, train_df, feat_ext, epochs, same_day, activation='relu'):
         if feat_ext == 'dense':
-            if same_day:
-                self.model = DenseAutoencoder([384, 256, 128, 64], activation).cpu()
-            else:
-                self.model = DenseAutoencoder([384, 256, 128, 64, 32], activation).cpu()
+            self.model = DenseAutoencoder([384, 256, 128, 64, 32], activation).cpu()
         elif feat_ext == 'lstm':
             self.model = LSTMAutoencoder(128).cpu()
 
