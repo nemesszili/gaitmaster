@@ -1,0 +1,12 @@
+name: gaitmaster
+channels:
+  - pytorch
+  - defaults
+dependencies:
+  - click
+  - pandas
+  - pytorch-cpu
+  - torchvision-cpu
+  - matplotlib
+  - seaborn
+  - jupyter

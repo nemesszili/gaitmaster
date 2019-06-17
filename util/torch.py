@@ -6,7 +6,6 @@ import torch.nn as nn
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-import sys
 
 from util.const import *
 from util.auto_dense import DenseAutoencoder

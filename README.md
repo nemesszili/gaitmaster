@@ -11,9 +11,15 @@ Autoencoder measurements with ZJU-GaitAcc dataset for master's thesis. Loosely b
 Obtain the dataset from [here](http://www.cs.zju.edu.cn/~gpan/database/gaitacc.html).
 Move the dataset under `data/raw_data` and run [notebooks/RawToCSV.ipynb](notebooks/RawToCSV.ipynb) to obtain the raw features.
 
-Run:
+Linux:
 ```batch
 conda env create -f environment.yml
+source activate gaitmaster
+```
+
+Windows:
+```batch
+conda env create -f environment_win.yml
 activate gaitmaster
 ```
 

@@ -10,7 +10,7 @@ class LSTMAutoencoder(nn.Module):
     def __init__(self, encode_dim):
         super(LSTMAutoencoder, self).__init__()
 
-        self.hidden_dim = 16
+        self.hidden_dim = 64
         self.layer_dim = 2
 
         self.encoder = nn.LSTM(input_size=3, hidden_size=self.hidden_dim,
